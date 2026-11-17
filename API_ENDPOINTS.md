@@ -1,143 +1,272 @@
-# Endpoints da API Requiem
+# Documentação da API Requiem - Auto Acompanhamento & Preset Store
 
-## Informações gerais
+## Visão Geral
+
+A **Requiem API** é o backend responsável por gerenciar a inteligência de **auto acompanhamento musical** do projeto Requiem.
+
+O sistema foca 100% no acompanhamento dinâmico: armazenamento de sessões, persistência de progressões harmônicas, notas e parâmetros rítmicos, serialização de configurações e compartilhamento público através de uma **Loja Comunitária de Presets** (*Preset Store*).
+
+> [!NOTE]
+> O Requiem opera como um auto acompanhamento em tempo real. A API não realiza exportação ou conversão de arquivos MIDI brutos, concentrando-se na estrutura serializada das configurações de acompanhamento (`compositionData`).
+
+---
+
+## Informações Gerais & Configuração
 
 - **Base URL local:** `http://localhost:3001/api`
-- O Requiem é um sistema inteligente de **auto acompanhamento**. A API armazena, serializa e compartilha configurações de acompanhamento (acordes, notas, BPM, tom, blocos de composição), sem dependência ou necessidade de exportação de arquivos MIDI.
-- Os endpoints públicos da **Loja de Acompanhamentos** (`GET /store/presets`, `GET /store/presets/:id`, `POST /store/presets/:id/use`) não exigem autenticação.
-- Os endpoints protegidos exigem o header:
+- **Formato das Datas:** Padrão ISO-8601 UTC (ex: `2026-11-17T13:20:00Z`).
+- **Formato de Dados:** `application/json; charset=utf-8`.
+- **Autenticação:** JWT (*JSON Web Token*) emitido no registro ou login.
+- **Cabeçalho para rotas protegidas:**
   ```http
-  Authorization: Bearer <token>
+  Authorization: Bearer <seu_token_jwt>
   ```
-- Datas são retornadas no formato ISO-8601.
+- **Rotas Públicas (sem token obrigatório):**
+  - `POST /auth/register`
+  - `POST /auth/login`
+  - `GET /health`
+  - `GET /store/presets` *(listagem pública da loja)*
+  - `GET /store/presets/:id` *(detalhes e configuração do preset)*
+  - `POST /store/presets/:id/use` *(registro de download/uso)*
 
 ---
 
-## Autenticação
+## Estrutura da Configuração de Auto Acompanhamento (`compositionData`)
 
-### `POST /auth/register`
+O auto acompanhamento do Requiem organiza uma sessão em **blocos musicais estruturados** (`SerializedBlock`). Cada bloco contém a progressão harmônica de acordes, as notas detectadas (pitch) e as definições métricas (tempo, tom e compasso).
 
-Cria uma conta e retorna um token JWT.
-
-**Requisição**
+### Modelo de um Bloco Musical (`SerializedBlock`)
 
 ```json
 {
-  "email": "usuario@example.com",
-  "name": "Nome do Usuário",
-  "password": "senha-segura"
+  "id": "block-1731840000000",
+  "name": "Chorus Principal",
+  "bpm": 120,
+  "key": "C",
+  "timeSignature": "4/4",
+  "progression": [
+    {
+      "id": "chord-seg-1",
+      "chord": "Dm7",
+      "durationBeats": 4
+    },
+    {
+      "id": "chord-seg-2",
+      "chord": "G7",
+      "durationBeats": 4
+    },
+    {
+      "id": "chord-seg-3",
+      "chord": "Cmaj7",
+      "durationBeats": 8
+    }
+  ],
+  "notes": [
+    {
+      "pitch": 62,
+      "startTime": 0.0,
+      "endTime": 1.0,
+      "amplitude": 0.85
+    },
+    {
+      "pitch": 65,
+      "startTime": 1.0,
+      "endTime": 2.0,
+      "amplitude": 0.78
+    }
+  ]
 }
 ```
 
-**Resposta `201 Created`**
+#### Dicionário de Campos do Bloco:
+
+| Campo | Tipo | Descrição |
+| :--- | :--- | :--- |
+| `id` | `String` | Identificador único da seção ou bloco musical. |
+| `name` | `String` | Nome descritivo da seção (ex: `"Intro"`, `"Verso A"`, `"Chorus"`, `"Solo"`). |
+| `bpm` | `Integer` | Andamento rítmico em batidas por minuto (ex: `80`, `120`, `140`). |
+| `key` | `String` | Tonalidade de referência do acompanhamento (ex: `"C"`, `"Am"`, `"F#m"`, `"Eb"`). |
+| `timeSignature` | `String` | Fórmula de compasso musical (ex: `"4/4"`, `"3/4"`, `"6/8"`). |
+| `progression` | `Array` | Lista ordenada de segmentos harmônicos gerados pelo motor de harmonia. |
+| `progression[].id` | `String` | Identificador único do segmento de acorde. |
+| `progression[].chord` | `String` | Cifra harmônica do acorde (ex: `"Cmaj7"`, `"Am9"`, `"G7b9"`, `"Em7b5"`). |
+| `progression[].durationBeats` | `Number` | Duração do acorde em tempos/batidas métricas (ex: `4`, `2`, `1.5`). |
+| `notes` | `Array` | Lista de notas melódicas gravadas/detectadas para guia do acompanhamento. |
+| `notes[].pitch` | `Number` | Número MIDI da nota fundamental (ex: `60` para Dó Central C4). |
+| `notes[].startTime` | `Number` | Ponto inicial da nota em segundos a partir do início do bloco. |
+| `notes[].endTime` | `Number` | Ponto final da nota em segundos. |
+| `notes[].amplitude` | `Number` | Intensidade dinâmica relativa detectada (normalizada entre `0.0` e `1.0`). |
+
+---
+
+## 1. Autenticação
+
+### 1.1 Registrar Novo Usuário
+
+Cria uma conta de usuário e retorna o token JWT imediato.
+
+- **Método & Rota:** `POST /auth/register`
+- **Acesso:** Público
+
+#### Exemplo de Requisição
+
+```http
+POST /api/auth/register HTTP/1.1
+Host: localhost:3001
+Content-Type: application/json
+
+{
+  "name": "Tom Jobim",
+  "email": "tom.jobim@ipanema.mus.br",
+  "password": "bossa-nova-secreta"
+}
+```
+
+#### Exemplo de Resposta `201 Created`
 
 ```json
 {
-  "token": "<jwt>",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMmU0NTY3OC1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCJlbWFpbCI6InRvbS5qb2JpbUBpcGFuZW1hLm11cy5iciIsImlhdCI6MTczMTg0MDAwMCwiZXhwIjoxNzMyNDQ0ODAwfQ...",
   "user": {
-    "id": "user-123",
-    "email": "usuario@example.com",
-    "name": "Nome do Usuário"
-  }
-}
-```
-
-### `POST /auth/login`
-
-Autentica um usuário existente.
-
-**Requisição**
-
-```json
-{
-  "email": "usuario@example.com",
-  "password": "senha-segura"
-}
-```
-
-**Resposta `200 OK`**
-
-```json
-{
-  "token": "<jwt>",
-  "user": {
-    "id": "user-123",
-    "email": "usuario@example.com",
-    "name": "Nome do Usuário"
-  }
-}
-```
-
-### `GET /auth/me`
-
-Retorna os dados do usuário autenticado.
-
-**Resposta `200 OK`**
-
-```json
-{
-  "user": {
-    "id": "user-123",
-    "email": "usuario@example.com",
-    "name": "Nome do Usuário",
-    "createdAt": "2026-10-16T16:00:00Z"
+    "id": "12e45678-e89b-12d3-a456-426614174000",
+    "name": "Tom Jobim",
+    "email": "tom.jobim@ipanema.mus.br"
   }
 }
 ```
 
 ---
 
-## Sessões de Auto Acompanhamento
+### 1.2 Login de Usuário
 
-### `POST /sessions`
+Autentica com email e senha previamente cadastrados.
 
-Cria uma nova sessão de auto acompanhamento. O corpo é opcional; sem corpo, o título padrão é `Nova Composição`.
+- **Método & Rota:** `POST /auth/login`
+- **Acesso:** Público
 
-**Requisição**
+#### Exemplo de Requisição
 
-```json
+```http
+POST /api/auth/login HTTP/1.1
+Host: localhost:3001
+Content-Type: application/json
+
 {
-  "title": "Improviso de Terça"
+  "email": "tom.jobim@ipanema.mus.br",
+  "password": "bossa-nova-secreta"
 }
 ```
 
-**Resposta `201 Created`**
+#### Exemplo de Resposta `200 OK`
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "12e45678-e89b-12d3-a456-426614174000",
+    "name": "Tom Jobim",
+    "email": "tom.jobim@ipanema.mus.br"
+  }
+}
+```
+
+---
+
+### 1.3 Obter Dados do Usuário Autenticado
+
+Retorna o perfil do usuário proprietário do token JWT.
+
+- **Método & Rota:** `GET /auth/me`
+- **Acesso:** Protegido (`Authorization: Bearer <token>`)
+
+#### Exemplo de Resposta `200 OK`
+
+```json
+{
+  "user": {
+    "id": "12e45678-e89b-12d3-a456-426614174000",
+    "name": "Tom Jobim",
+    "email": "tom.jobim@ipanema.mus.br",
+    "createdAt": "2026-11-17T10:15:30Z"
+  }
+}
+```
+
+---
+
+## 2. Sessões de Auto Acompanhamento
+
+### 2.1 Criar Nova Sessão
+
+Inicia uma sessão de auto acompanhamento vazia para o usuário autenticado.
+
+- **Método & Rota:** `POST /sessions`
+- **Acesso:** Protegido
+- **Corpo:** Opcional. Se omitido, o título padrão é `"Nova Composição"`.
+
+#### Exemplo de Requisição
+
+```json
+{
+  "title": "Ensaio Bossa Nova em Ré Maior"
+}
+```
+
+#### Exemplo de Resposta `201 Created`
 
 ```json
 {
   "session": {
-    "id": "abc-123",
-    "title": "Improviso de Terça",
-    "createdAt": "2026-10-16T16:00:00Z",
-    "updatedAt": "2026-10-16T16:00:00Z",
+    "id": "a9b8c7d6-1111-2222-3333-444455556666",
+    "title": "Ensaio Bossa Nova em Ré Maior",
+    "createdAt": "2026-11-17T10:20:00Z",
+    "updatedAt": "2026-11-17T10:20:00Z",
     "compositionData": null,
     "messages": []
   }
 }
 ```
 
-### `GET /sessions`
+---
 
-Lista as sessões do usuário autenticado, ordenadas pela atualização mais recente. Cada item inclui apenas a mensagem mais recente.
+### 2.2 Listar Sessões do Usuário
 
-**Resposta `200 OK`**
+Retorna todas as sessões do usuário, ordenadas pela mais recentemente modificada. Traz a última mensagem trocada com o assistente inteligente se houver.
+
+- **Método & Rota:** `GET /sessions`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "sessions": [
     {
-      "id": "abc-123",
-      "title": "Improviso de Terça",
-      "createdAt": "2026-10-16T16:00:00Z",
-      "updatedAt": "2026-10-16T16:30:00Z",
-      "compositionData": [],
+      "id": "a9b8c7d6-1111-2222-3333-444455556666",
+      "title": "Ensaio Bossa Nova em Ré Maior",
+      "createdAt": "2026-11-17T10:20:00Z",
+      "updatedAt": "2026-11-17T10:25:30Z",
+      "compositionData": [
+        {
+          "id": "blk-1",
+          "name": "Tema A",
+          "bpm": 124,
+          "key": "D",
+          "timeSignature": "4/4",
+          "progression": [
+            { "id": "p1", "chord": "Dmaj7", "durationBeats": 4 },
+            { "id": "p2", "chord": "Em7", "durationBeats": 4 }
+          ],
+          "notes": []
+        }
+      ],
       "messages": [
         {
           "id": "msg-1",
-          "role": "user",
-          "content": "Vamos começar",
-          "sessionId": "abc-123",
-          "createdAt": "2026-10-16T16:30:00Z"
+          "role": "assistant",
+          "content": "Sugiro um Em7 seguido de A7(b9) para a preparação do refrão.",
+          "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+          "createdAt": "2026-11-17T10:25:30Z"
         }
       ]
     }
@@ -145,56 +274,99 @@ Lista as sessões do usuário autenticado, ordenadas pela atualização mais rec
 }
 ```
 
-### `GET /sessions/:id`
+---
 
-Retorna uma sessão específica pertencente ao usuário autenticado com todas as suas mensagens e dados de composição serializados.
+### 2.3 Obter Sessão por ID
 
-**Resposta `200 OK`**
+Carrega a sessão completa, incluindo todo o histórico de mensagens e os blocos de acompanhamento.
+
+- **Método & Rota:** `GET /sessions/:id`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "session": {
-    "id": "abc-123",
-    "title": "Improviso de Terça",
-    "createdAt": "2026-10-16T16:00:00Z",
-    "updatedAt": "2026-10-16T16:30:00Z",
+    "id": "a9b8c7d6-1111-2222-3333-444455556666",
+    "title": "Ensaio Bossa Nova em Ré Maior",
+    "createdAt": "2026-11-17T10:20:00Z",
+    "updatedAt": "2026-11-17T10:25:30Z",
     "compositionData": [
       {
         "id": "blk-1",
-        "name": "Intro",
-        "bpm": 120,
-        "key": "C",
+        "name": "Tema A",
+        "bpm": 124,
+        "key": "D",
         "timeSignature": "4/4",
         "progression": [
-          { "id": "p1", "chord": "Cmaj7", "durationBeats": 4 }
+          { "id": "p1", "chord": "Dmaj7", "durationBeats": 4 },
+          { "id": "p2", "chord": "Em7", "durationBeats": 4 }
         ],
         "notes": []
       }
     ],
-    "messages": []
+    "messages": [
+      {
+        "id": "msg-1",
+        "role": "user",
+        "content": "Qual acorde posso usar para conectar ao Dmaj7?",
+        "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+        "createdAt": "2026-11-17T10:24:00Z"
+      },
+      {
+        "id": "msg-2",
+        "role": "assistant",
+        "content": "Sugiro um Em7 seguido de A7(b9) para a preparação do refrão.",
+        "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+        "createdAt": "2026-11-17T10:25:30Z"
+      }
+    ]
   }
 }
 ```
 
-### `PATCH /sessions/:id`
+---
 
-Atualiza o título e/ou a configuração de blocos do auto acompanhamento (`compositionData`).
+### 2.4 Salvar Alterações na Sessão (`PATCH /sessions/:id`)
 
-**Requisição**
+Permite salvar ou atualizar o título e a lista completa de blocos do acompanhamento (`compositionData`).
+
+- **Método & Rota:** `PATCH /sessions/:id`
+- **Acesso:** Protegido
+
+#### Exemplo de Requisição Real
 
 ```json
 {
-  "title": "Novo nome da sessão",
+  "title": "Garota de Ipanema - Ensaio 2",
   "compositionData": [
     {
-      "id": "blk-1",
-      "name": "Parte A",
-      "bpm": 120,
-      "key": "Am",
+      "id": "blk-intro",
+      "name": "Intro Instrumental",
+      "bpm": 128,
+      "key": "F",
       "timeSignature": "4/4",
       "progression": [
-        { "id": "p1", "chord": "Am7", "durationBeats": 4 },
-        { "id": "p2", "chord": "Dm7", "durationBeats": 4 }
+        { "id": "c1", "chord": "Fmaj7", "durationBeats": 4 },
+        { "id": "c2", "chord": "G7", "durationBeats": 4 }
+      ],
+      "notes": [
+        { "pitch": 65, "startTime": 0.0, "endTime": 1.5, "amplitude": 0.9 },
+        { "pitch": 67, "startTime": 1.5, "endTime": 3.0, "amplitude": 0.85 }
+      ]
+    },
+    {
+      "id": "blk-verse",
+      "name": "Verso A",
+      "bpm": 128,
+      "key": "F",
+      "timeSignature": "4/4",
+      "progression": [
+        { "id": "c3", "chord": "Fmaj7", "durationBeats": 4 },
+        { "id": "c4", "chord": "G7", "durationBeats": 4 },
+        { "id": "c5", "chord": "Gm7", "durationBeats": 4 },
+        { "id": "c6", "chord": "Gb7", "durationBeats": 4 }
       ],
       "notes": []
     }
@@ -202,7 +374,7 @@ Atualiza o título e/ou a configuração de blocos do auto acompanhamento (`comp
 }
 ```
 
-**Resposta `200 OK`**
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
@@ -210,27 +382,33 @@ Atualiza o título e/ou a configuração de blocos do auto acompanhamento (`comp
 }
 ```
 
-### `GET /sessions/:id/export`
+---
 
-Exporta e serializa a configuração atual da sessão em formato JSON para cópia, download ou integração externa.
+### 2.5 Exportar Configuração da Sessão (`GET /sessions/:id/export`)
 
-**Resposta `200 OK`**
+Gera um payload serializado com os blocos da sessão e carimbo de data/hora de exportação, ideal para backups, compartilhamento direto ou download.
+
+- **Método & Rota:** `GET /sessions/:id/export`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "export": {
-    "sessionId": "abc-123",
-    "title": "Improviso de Terça",
-    "exportedAt": "2026-11-17T10:00:00Z",
+    "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+    "title": "Garota de Ipanema - Ensaio 2",
+    "exportedAt": "2026-11-17T10:28:00Z",
     "configurationData": [
       {
-        "id": "blk-1",
-        "name": "Parte A",
-        "bpm": 120,
-        "key": "Am",
+        "id": "blk-intro",
+        "name": "Intro Instrumental",
+        "bpm": 128,
+        "key": "F",
         "timeSignature": "4/4",
         "progression": [
-          { "id": "p1", "chord": "Am7", "durationBeats": 4 }
+          { "id": "c1", "chord": "Fmaj7", "durationBeats": 4 },
+          { "id": "c2", "chord": "G7", "durationBeats": 4 }
         ],
         "notes": []
       }
@@ -239,53 +417,76 @@ Exporta e serializa a configuração atual da sessão em formato JSON para cópi
 }
 ```
 
-### `POST /sessions/:id/export-to-store`
+---
 
-Exporta e serializa a configuração da sessão diretamente para a **Loja Pública** de configurações do Requiem.
+### 2.6 Exportar Sessão para a Loja Pública (`POST /sessions/:id/export-to-store`)
 
-**Requisição**
+Atalho prático que pega a configuração atual da sessão do usuário e a publica instantaneamente como um preset na Loja Pública do Requiem.
+
+- **Método & Rota:** `POST /sessions/:id/export-to-store`
+- **Acesso:** Protegido
+
+#### Exemplo de Requisição Real
 
 ```json
 {
-  "title": "Bossa Nova Lounge",
-  "description": "Acompanhamento relaxante em Am a 110bpm",
+  "title": "Bossa Nova Clássica em Fá",
+  "description": "Harmonia tradicional de bossa nova com cadência II-V e acordes alterados. Excelente para violão e piano.",
   "genre": "Bossa Nova",
-  "tags": "bossa, piano, lounge",
-  "bpm": 110,
-  "tonality": "Am",
+  "tags": "bossa, violao, swing, mpb, jazz",
+  "bpm": 128,
+  "tonality": "F",
   "timeSignature": "4/4"
 }
 ```
 
-**Resposta `201 Created`**
+#### Exemplo de Resposta `201 Created`
 
 ```json
 {
   "preset": {
-    "id": "preset-123",
-    "title": "Bossa Nova Lounge",
-    "description": "Acompanhamento relaxante em Am a 110bpm",
+    "id": "preset-8888-9999-aaaa-bbbbccccdddd",
+    "title": "Bossa Nova Clássica em Fá",
+    "description": "Harmonia tradicional de bossa nova com cadência II-V e acordes alterados. Excelente para violão e piano.",
     "genre": "Bossa Nova",
-    "tags": "bossa, piano, lounge",
-    "bpm": 110,
-    "tonality": "Am",
+    "tags": "bossa, violao, swing, mpb, jazz",
+    "bpm": 128,
+    "tonality": "F",
     "timeSignature": "4/4",
-    "configurationData": [...],
+    "configurationData": [
+      {
+        "id": "blk-intro",
+        "name": "Intro Instrumental",
+        "bpm": 128,
+        "key": "F",
+        "timeSignature": "4/4",
+        "progression": [
+          { "id": "c1", "chord": "Fmaj7", "durationBeats": 4 },
+          { "id": "c2", "chord": "G7", "durationBeats": 4 }
+        ],
+        "notes": []
+      }
+    ],
     "downloadsCount": 0,
     "likesCount": 0,
-    "authorId": "user-123",
-    "authorName": "Nome do Usuário",
-    "createdAt": "2026-11-17T10:00:00Z",
-    "updatedAt": "2026-11-17T10:00:00Z"
+    "authorId": "12e45678-e89b-12d3-a456-426614174000",
+    "authorName": "Tom Jobim",
+    "createdAt": "2026-11-17T10:30:00Z",
+    "updatedAt": "2026-11-17T10:30:00Z"
   }
 }
 ```
 
-### `DELETE /sessions/:id`
+---
 
-Exclui a sessão do usuário autenticado e suas mensagens.
+### 2.7 Excluir Sessão (`DELETE /sessions/:id`)
 
-**Resposta `200 OK`**
+Remove a sessão e todas as mensagens associadas.
+
+- **Método & Rota:** `DELETE /sessions/:id`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
@@ -295,68 +496,95 @@ Exclui a sessão do usuário autenticado e suas mensagens.
 
 ---
 
-## Loja Pública de Configurações (Presets Store)
+## 3. Loja Comunitária de Presets (`/store/presets`)
 
-A loja é o espaço público onde usuários podem publicar, navegar, buscar e carregar configurações de auto acompanhamento feitas pela comunidade.
+A **Preset Store** é o catálogo público onde qualquer músico pode encontrar configurações prontas de auto acompanhamento postadas pela comunidade e importá-las para tocar junto no Requiem.
 
-### `GET /store/presets` *(Público)*
+### 3.1 Listar Presets Públicos
 
-Lista as configurações disponíveis na loja pública. Suporta pesquisa textual, filtro por gênero e ordenação.
+Lista presets disponíveis com suporte a busca textual, filtro de gênero musical e ordenação.
 
-**Parâmetros de Query (opcionais):**
-- `search`: termo de busca (busca por título, descrição, tags ou autor).
-- `genre`: filtro por gênero musical (ex: `Jazz`, `Bossa Nova`, `Lo-Fi`, `Pop`, `Rock`).
-- `sortBy`: critério de ordenação (`recent` [padrão] ou `popular`).
+- **Método & Rota:** `GET /store/presets`
+- **Acesso:** Público (não exige token)
+- **Parâmetros de Consulta (*Query Parameters*):**
 
-**Exemplo:** `GET /store/presets?search=jazz&sortBy=popular`
+| Parâmetro | Tipo | Padrão | Descrição |
+| :--- | :--- | :--- | :--- |
+| `search` | `String` | *(opcional)* | Termo pesquisado no título, descrição, tags ou nome do autor. |
+| `genre` | `String` | *(opcional)* | Filtro exato por gênero musical (ex: `"Jazz"`, `"Bossa Nova"`, `"Lo-Fi"`, `"Pop"`). |
+| `sortBy` | `String` | `"recent"` | Critério de ordenação: `"recent"` (mais recentes) ou `"popular"` (mais baixados). |
 
-**Resposta `200 OK`**
+#### Exemplo de Chamada:
+`GET /api/store/presets?search=jazz&genre=Jazz&sortBy=popular`
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "presets": [
     {
-      "id": "preset-123",
-      "title": "Jazz Club Trio",
-      "description": "Progressão II-V-I rica para improviso",
+      "id": "preset-jazz-001",
+      "title": "Jazz Club Trio Swing",
+      "description": "Progressão fluida com baixo caminhante (walking bass) implícito em Dm.",
       "genre": "Jazz",
-      "tags": "jazz, ii-v-i, swing",
-      "bpm": 130,
+      "tags": "jazz, ii-v-i, swing, trio",
+      "bpm": 136,
       "tonality": "Dm",
       "timeSignature": "4/4",
-      "downloadsCount": 42,
-      "likesCount": 15,
-      "authorId": "user-123",
-      "authorName": "Miles",
-      "createdAt": "2026-11-17T09:00:00Z",
-      "updatedAt": "2026-11-17T09:00:00Z"
+      "downloadsCount": 89,
+      "likesCount": 34,
+      "authorId": "user-miles-99",
+      "authorName": "Miles Davis",
+      "createdAt": "2026-11-15T18:00:00Z",
+      "updatedAt": "2026-11-15T18:00:00Z"
+    },
+    {
+      "id": "preset-jazz-002",
+      "title": "Autumn Ballad 90bpm",
+      "description": "Acompanhamento lento para baladas e improvisos com palhetada suave.",
+      "genre": "Jazz",
+      "tags": "ballad, slow, piano, chords",
+      "bpm": 90,
+      "tonality": "G",
+      "timeSignature": "4/4",
+      "downloadsCount": 45,
+      "likesCount": 18,
+      "authorId": "user-bill-77",
+      "authorName": "Bill Evans",
+      "createdAt": "2026-11-16T12:00:00Z",
+      "updatedAt": "2026-11-16T12:00:00Z"
     }
   ]
 }
 ```
 
-### `GET /store/presets/:id` *(Público)*
+---
 
-Obtém os detalhes completos de uma configuração da loja, incluindo a estrutura serializada de auto acompanhamento (`configurationData`).
+### 3.2 Obter Detalhes do Preset (`GET /store/presets/:id`)
 
-**Resposta `200 OK`**
+Recupera os detalhes completos do preset incluindo toda a estrutura de blocos (`configurationData`).
+
+- **Método & Rota:** `GET /store/presets/:id`
+- **Acesso:** Público
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "preset": {
-    "id": "preset-123",
-    "title": "Jazz Club Trio",
-    "description": "Progressão II-V-I rica para improviso",
+    "id": "preset-jazz-001",
+    "title": "Jazz Club Trio Swing",
+    "description": "Progressão fluida com baixo caminhante implícito em Dm.",
     "genre": "Jazz",
-    "tags": "jazz, ii-v-i, swing",
-    "bpm": 130,
+    "tags": "jazz, ii-v-i, swing, trio",
+    "bpm": 136,
     "tonality": "Dm",
     "timeSignature": "4/4",
     "configurationData": [
       {
-        "id": "blk-1",
-        "name": "Chorus A",
-        "bpm": 130,
+        "id": "blk-swing-a",
+        "name": "Seção A - II-V-I",
+        "bpm": 136,
         "key": "Dm",
         "timeSignature": "4/4",
         "progression": [
@@ -367,67 +595,96 @@ Obtém os detalhes completos de uma configuração da loja, incluindo a estrutur
         "notes": []
       }
     ],
-    "downloadsCount": 42,
-    "likesCount": 15,
-    "authorId": "user-123",
-    "authorName": "Miles",
-    "createdAt": "2026-11-17T09:00:00Z",
-    "updatedAt": "2026-11-17T09:00:00Z"
+    "downloadsCount": 89,
+    "likesCount": 34,
+    "authorId": "user-miles-99",
+    "authorName": "Miles Davis",
+    "createdAt": "2026-11-15T18:00:00Z",
+    "updatedAt": "2026-11-15T18:00:00Z"
   }
 }
 ```
 
-### `POST /store/presets/:id/use` *(Público / Autenticado)*
+---
 
-Registra o uso/download da configuração, incrementando o contador da loja.
-- Se o usuário estiver autenticado e o parâmetro `createSession=true` for passado, uma nova sessão é criada automaticamente na conta do usuário com os blocos deste auto acompanhamento.
+### 3.3 Usar/Carregar Preset (`POST /store/presets/:id/use`)
 
-**Parâmetros de Query (opcionais):**
-- `createSession`: `true` ou `false` (padrão `false`).
+Registra o uso do preset, incrementando seu contador de downloads.
 
-**Resposta `200 OK`**
+- **Método & Rota:** `POST /store/presets/:id/use`
+- **Acesso:** Público (ou Autenticado se `createSession=true`)
+- **Parâmetro de Consulta:** `createSession=true|false` *(padrão: false)*
+  - Quando `createSession=true`: exige autenticação (`Bearer <token>`) e cria uma **nova sessão pronta** na conta do usuário já preenchida com a configuração do preset para que o usuário comece a tocar imediatamente.
+
+#### Exemplo de Chamada com criação de sessão:
+`POST /api/store/presets/preset-jazz-001/use?createSession=true`
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "preset": {
-    "id": "preset-123",
-    "title": "Jazz Club Trio",
-    "downloadsCount": 43,
-    "likesCount": 15,
+    "id": "preset-jazz-001",
+    "title": "Jazz Club Trio Swing",
+    "downloadsCount": 90,
+    "likesCount": 34,
     "configurationData": [...]
   },
   "createdSession": {
-    "id": "sess-new-456",
-    "title": "Jazz Club Trio",
-    "compositionData": [...]
+    "id": "sess-criada-automaticamente-123",
+    "title": "Jazz Club Trio Swing",
+    "createdAt": "2026-11-17T10:32:00Z",
+    "updatedAt": "2026-11-17T10:32:00Z",
+    "compositionData": [
+      {
+        "id": "blk-swing-a",
+        "name": "Seção A - II-V-I",
+        "bpm": 136,
+        "key": "Dm",
+        "timeSignature": "4/4",
+        "progression": [
+          { "id": "p1", "chord": "Em7b5", "durationBeats": 2 },
+          { "id": "p2", "chord": "A7b9", "durationBeats": 2 },
+          { "id": "p3", "chord": "Dm7", "durationBeats": 4 }
+        ],
+        "notes": []
+      }
+    ],
+    "messages": []
   }
 }
 ```
 
-### `POST /store/presets` *(Protegido)*
+---
 
-Publica uma configuração diretamente na loja pública. Pode receber os dados de configuração serializados ou o ID de uma sessão existente do usuário.
+### 3.4 Publicar Configuração na Loja (`POST /store/presets`)
 
-**Requisição direta**
+Permite a um usuário autenticado disponibilizar uma configuração na loja pública. Pode ser criada fornecendo os blocos serializados diretamente ou fornecendo um `sessionId`.
+
+- **Método & Rota:** `POST /store/presets`
+- **Acesso:** Protegido
+
+#### Exemplo 1: Publicação com dados diretos de acompanhamento
 
 ```json
 {
-  "title": "Bossa Nova Moderna",
-  "description": "Acompanhamento leve de piano e cordas",
-  "genre": "Bossa Nova",
-  "tags": "bossa, piano, cordas",
-  "bpm": 124,
+  "title": "Lo-Fi Beats Chilled Night",
+  "description": "Progressão atmosférica em Cmaj9 e Fmaj7 com 75 BPM.",
+  "genre": "Lo-Fi",
+  "tags": "lofi, chill, piano, relax",
+  "bpm": 75,
   "tonality": "C",
   "timeSignature": "4/4",
   "configurationData": [
     {
-      "id": "blk-1",
-      "name": "Intro",
-      "bpm": 124,
+      "id": "blk-lofi-1",
+      "name": "Loop Principal",
+      "bpm": 75,
       "key": "C",
       "timeSignature": "4/4",
       "progression": [
-        { "id": "p1", "chord": "Cmaj9", "durationBeats": 4 }
+        { "id": "c1", "chord": "Cmaj9", "durationBeats": 4 },
+        { "id": "c2", "chord": "Fmaj7", "durationBeats": 4 }
       ],
       "notes": []
     }
@@ -435,69 +692,114 @@ Publica uma configuração diretamente na loja pública. Pode receber os dados d
 }
 ```
 
-**Requisição a partir de uma sessão (`sessionId`)**
+#### Exemplo 2: Publicação vinculando a uma sessão existente
 
 ```json
 {
-  "sessionId": "abc-123",
-  "description": "Publicando meu arranjo da sessão",
-  "genre": "Pop",
-  "tags": "pop, upbeat"
+  "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+  "title": "Meu Arranjo da Sessão",
+  "description": "Compartilhando os acordes refinados da minha sessão",
+  "genre": "Pop"
 }
 ```
 
-**Resposta `201 Created`**
+#### Exemplo de Resposta `201 Created`
 
-Retorna o objeto `preset` detalhado criado.
+```json
+{
+  "preset": {
+    "id": "preset-lofi-777",
+    "title": "Lo-Fi Beats Chilled Night",
+    "description": "Progressão atmosférica em Cmaj9 e Fmaj7 com 75 BPM.",
+    "genre": "Lo-Fi",
+    "tags": "lofi, chill, piano, relax",
+    "bpm": 75,
+    "tonality": "C",
+    "timeSignature": "4/4",
+    "configurationData": [...],
+    "downloadsCount": 0,
+    "likesCount": 0,
+    "authorId": "12e45678-e89b-12d3-a456-426614174000",
+    "authorName": "Tom Jobim",
+    "createdAt": "2026-11-17T10:35:00Z",
+    "updatedAt": "2026-11-17T10:35:00Z"
+  }
+}
+```
 
-### `GET /store/presets/my` *(Protegido)*
+---
 
-Lista todas as configurações da loja publicadas pelo usuário autenticado.
+### 3.5 Listar Meus Presets na Loja (`GET /store/presets/my`)
 
-**Resposta `200 OK`**
+Retorna a lista de todas as configurações postadas na loja pelo usuário autenticado.
+
+- **Método & Rota:** `GET /store/presets/my`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
   "presets": [
     {
-      "id": "preset-123",
-      "title": "Bossa Nova Moderna",
-      "genre": "Bossa Nova",
-      "downloadsCount": 12,
-      "authorId": "user-123",
-      "authorName": "Nome do Usuário"
+      "id": "preset-lofi-777",
+      "title": "Lo-Fi Beats Chilled Night",
+      "genre": "Lo-Fi",
+      "downloadsCount": 14,
+      "likesCount": 5,
+      "authorId": "12e45678-e89b-12d3-a456-426614174000",
+      "authorName": "Tom Jobim",
+      "createdAt": "2026-11-17T10:35:00Z",
+      "updatedAt": "2026-11-17T10:35:00Z"
     }
   ]
 }
 ```
 
-### `PATCH /store/presets/:id` *(Protegido)*
+---
 
-Atualiza informações de uma configuração da loja pertencente ao usuário autenticado.
+### 3.6 Atualizar Preset (`PATCH /store/presets/:id`)
 
-**Requisição**
+Permite ao autor alterar título, descrição, tags, gênero musical ou blocos de configuração do preset.
 
-```json
-{
-  "title": "Bossa Nova Moderna Rev 2",
-  "description": "Atualizado com novos acordes",
-  "bpm": 126
-}
-```
+- **Método & Rota:** `PATCH /store/presets/:id`
+- **Acesso:** Protegido (somente o autor pode alterar)
 
-**Resposta `200 OK`**
+#### Exemplo de Requisição
 
 ```json
 {
-  "preset": { ... }
+  "title": "Lo-Fi Beats Chilled Night (Edição Especial)",
+  "description": "Atualizado com novas variações de acordes nos tempos pares.",
+  "bpm": 78
 }
 ```
 
-### `DELETE /store/presets/:id` *(Protegido)*
+#### Exemplo de Resposta `200 OK`
 
-Remove uma publicação da loja pertencente ao usuário autenticado.
+```json
+{
+  "preset": {
+    "id": "preset-lofi-777",
+    "title": "Lo-Fi Beats Chilled Night (Edição Especial)",
+    "description": "Atualizado com novas variações de acordes nos tempos pares.",
+    "genre": "Lo-Fi",
+    "bpm": 78,
+    "updatedAt": "2026-11-17T10:38:00Z"
+  }
+}
+```
 
-**Resposta `200 OK`**
+---
+
+### 3.7 Remover Preset (`DELETE /store/presets/:id`)
+
+Remove a publicação da loja. Apenas o usuário que publicou pode remover.
+
+- **Método & Rota:** `DELETE /store/presets/:id`
+- **Acesso:** Protegido
+
+#### Exemplo de Resposta `200 OK`
 
 ```json
 {
@@ -507,40 +809,95 @@ Remove uma publicação da loja pertencente ao usuário autenticado.
 
 ---
 
-## Mensagens de Sessão
+## 4. Mensagens do Assistente na Sessão
 
-### `POST /sessions/:id/messages`
+### 4.1 Enviar Mensagem
 
-Adiciona uma mensagem à sessão.
+Adiciona uma mensagem de texto à sessão (pergunta do usuário ou resposta do assistente inteligente).
 
-**Requisição**
+- **Método & Rota:** `POST /sessions/:id/messages`
+- **Acesso:** Protegido
+
+#### Exemplo de Requisição
 
 ```json
 {
   "role": "user",
-  "content": "Quero experimentar outra progressão"
+  "content": "Quais acordes combinam com um solo pentatônico em Dó maior?"
 }
 ```
 
-**Resposta `201 Created`**
+#### Exemplo de Resposta `201 Created`
 
 ```json
 {
   "message": {
-    "id": "msg-1",
+    "id": "msg-8888-9999",
     "role": "user",
-    "content": "Quero experimentar outra progressão",
-    "sessionId": "abc-123",
-    "createdAt": "2026-10-16T16:30:00Z"
+    "content": "Quais acordes combinam com um solo pentatônico em Dó maior?",
+    "sessionId": "a9b8c7d6-1111-2222-3333-444455556666",
+    "createdAt": "2026-11-17T10:40:00Z"
   }
 }
 ```
 
 ---
 
-## Erros comuns
+## 5. Resumo de Respostas e Códigos de Status HTTP
 
-- `400 Bad Request`: dados obrigatórios ausentes ou configuração de acompanhamento vazia.
-- `401 Unauthorized`: token JWT ausente, inválido ou expirado em rota protegida.
-- `404 Not Found`: recurso não encontrado ou sem permissão de acesso.
-- `409 Conflict`: email já cadastrado.
+| Código | Significado | Exemplo de Ocorrência |
+| :--- | :--- | :--- |
+| `200 OK` | Sucesso na requisição | Consulta de sessões, presets ou atualização com PATCH. |
+| `201 Created` | Recurso criado com sucesso | Cadastro de usuário, criação de sessão ou preset publicado. |
+| `400 Bad Request` | Parâmetros inválidos | Título ou blocos de configuração ausentes em requisições obrigatórias. |
+| `401 Unauthorized` | Autenticação necessária ou inválida | Token JWT expirado, ausente ou solicitação de criar sessão sem estar logado. |
+| `404 Not Found` | Recurso inexistente | Sessão ou preset não encontrado no banco ou não pertencente ao usuário. |
+| `409 Conflict` | Conflito de unicidade | Tentativa de cadastro com email já existente. |
+| `500 Server Error` | Erro interno do servidor | Falha de banco de dados ou erro inesperado de processamento. |
+
+---
+
+## 6. Exemplos com cURL para Teste Rápido
+
+### Registro & Login
+```bash
+# Registrar
+curl -X POST http://localhost:3001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Miles Davis","email":"miles@jazz.com","password":"kind-of-blue"}'
+
+# Login
+curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"miles@jazz.com","password":"kind-of-blue"}'
+```
+
+### Explorar Presets Públicos
+```bash
+# Listar todos os presets ordenados por popularidade
+curl http://localhost:3001/api/store/presets?sortBy=popular
+
+# Buscar presets de Jazz
+curl "http://localhost:3001/api/store/presets?search=jazz&genre=Jazz"
+```
+
+### Criar Sessão & Exportar para a Loja
+```bash
+# Criar sessão
+curl -X POST http://localhost:3001/api/sessions \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Minha Sessão de Estudo"}'
+
+# Salvar blocos de acompanhamento
+curl -X PATCH http://localhost:3001/api/sessions/<SESSION_ID> \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"compositionData":[{"id":"b1","name":"A","bpm":120,"key":"C","timeSignature":"4/4","progression":[{"id":"p1","chord":"Cmaj7","durationBeats":4}],"notes":[]}]}'
+
+# Exportar direto para a Loja Pública
+curl -X POST http://localhost:3001/api/sessions/<SESSION_ID>/export-to-store \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Preset Dó Maior Suave","genre":"Pop","description":"Acompanhamento limpo em Dó"}'
+```
